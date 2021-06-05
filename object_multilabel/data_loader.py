@@ -22,12 +22,22 @@ class CocoObjectGender(data.Dataset):
         self.transform = transform
         self.args = args
 
+        assert (args.balanced and args.use_fair) == False
+
+
         print("loading %s annotations.........." % self.split)
         self.ann_data = pickle.load(open(os.path.join(annotation_dir, split+".data")))
+
+        if args.use_fair and split=="train":
+            with open(os.path.join("./IR_selections/IR_Alpha%s/Fair_Selection.txt" % args.ratio), "r") as f:
+                balanced_subset=f.readlines()
+            balanced_subset=[int(x) for x in balanced_subset]
+            self.ann_data=[self.ann_data[i] for i in balanced_subset]
 
         if args.balanced and split == 'train':
             balanced_subset = pickle.load(open("./data/{}_ratio_{}.ids".format(split, \
                 args.ratio)))
+            # print(balanced_subset)
             self.ann_data = [self.ann_data[i] for i in balanced_subset]
 
         if balanced_val and split == 'val':
@@ -46,6 +56,11 @@ class CocoObjectGender(data.Dataset):
         for index, ann in enumerate(self.ann_data):
             self.object_ann[index] = np.asarray(ann['objects'])
             self.gender_ann[index] = np.asarray(ann['gender'])
+        # print("Image Id:", self.ann_data[0]["image_id"])
+        # print("Object Array:", self.object_ann[0])
+        # arr_=np.where(self.object_ann[0]==1.0)
+        # print(arr_[0]+2, self.object_ann[0]==self.ann_data[0]["objects"])
+        # print("Gender Array:", self.gender_ann[0])
 
         if args.gender_balanced:
             man_idxs = np.nonzero(self.gender_ann[:, 0])[0]
@@ -58,6 +73,13 @@ class CocoObjectGender(data.Dataset):
             self.ann_data = [self.ann_data[idx] for idx in selected_idxs]
             self.object_ann = np.take(self.object_ann, selected_idxs, axis=0)
             self.gender_ann = np.take(self.gender_ann, selected_idxs, axis=0)
+
+        # Added by sumanyu
+        self.man_idxs = list(np.nonzero(self.gender_ann[:, 0])[0])
+        self.woman_idxs = list(np.nonzero(self.gender_ann[:, 1])[0])
+        self.man_arr = np.take(self.object_ann, self.man_idxs, axis=0)
+        self.woman_arr = np.take(self.object_ann, self.woman_idxs, axis=0)
+        #####
 
         print("man size : {} and woman size: {}".format(len(np.nonzero( \
                 self.gender_ann[:, 0])[0]), len(np.nonzero(self.gender_ann[:, 1])[0])))

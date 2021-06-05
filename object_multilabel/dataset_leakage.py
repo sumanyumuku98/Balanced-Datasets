@@ -9,10 +9,11 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 from torchvision.utils import save_image
 from torch.utils.data import DataLoader
-
+from fair_utils import ir_numpy
 import math, os, random, json, pickle, sys, pdb
 import string, shutil, time, argparse, operator, collections
 import numpy as np
+import logging
 import argparse
 from PIL import Image
 import functools
@@ -29,6 +30,8 @@ from model import GenderClassifier
 object_id_map = pickle.load(open('./data/object_id.map'))
 object2id = object_id_map['object2id']
 id2object = object_id_map['id2object']
+
+# print(object2id)
 
 def main():
 
@@ -65,10 +68,15 @@ def main():
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--crop_size', type=int, default=224)
     parser.add_argument('--image_size', type=int, default=256)
+    parser.add_argument("--gender_balanced", action="store_true")
+    parser.add_argument("--use_fair", action="store_true")
+    parser.add_argument("--name", type=str, default="placeholder")
 
     args = parser.parse_args()
 
-    args.gender_balanced = True # always True as we want to compute the leakage
+
+    # print(args.balanced, args.use_fair)
+    # args.gender_balanced = True # always True as we want to compute the leakage
     args.no_image = True
 
     args.blur = False
@@ -101,6 +109,19 @@ def main():
         train_loader = torch.utils.data.DataLoader(train_data, batch_size = args.batch_size,
                     shuffle = True, num_workers = 6, pin_memory = True)
 
+        print("Length of train dataset: %d" % len(train_data))
+        # print("Man arr shape:", train_data.man_arr.shape)
+        # print("Woman arr shape:", train_data.woman_arr.shape)
+        ####
+        # man_arr = train_data.man_arr
+        # woman_arr=train_data.woman_arr
+        # man_arr=np.sum(man_arr, axis=0)/man_arr.shape[0]
+        # woman_arr=np.sum(woman_arr, axis=0)/woman_arr.shape[0]
+        # man_ir=ir_numpy(man_arr)
+        # woman_ir=ir_numpy(woman_arr)
+        # print "Man imbalance ratio: %.3f" % man_ir
+        # print "Woman imbalance ratio: %.3f" % woman_ir
+        ####
 
         # Data samplersi for val set.
         val_data = CocoObjectGender(args, annotation_dir = args.annotation_dir, \
@@ -108,11 +129,15 @@ def main():
         val_loader = torch.utils.data.DataLoader(val_data, batch_size = args.batch_size, \
                 shuffle = False, num_workers = 4,pin_memory = True)
 
+        print("Length of val dataset: %d" % len(val_data))
+
         # Data samplers for test set.
         test_data = CocoObjectGender(args, annotation_dir = args.annotation_dir, \
                 image_dir = args.image_dir,split = 'test', transform = test_transform)
         test_loader = torch.utils.data.DataLoader(test_data, batch_size = args.batch_size, \
                 shuffle = False, num_workers = 4,pin_memory = True)
+
+        print("Length of test dataset: %d" % len(test_data))
 
         # initialize gender classifier
         model = GenderClassifier(args, args.num_object)
@@ -120,7 +145,7 @@ def main():
 
         optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay = 1e-5)
 
-        model_save_dir = os.path.join(args.save_dir, 'ratio_'+args.ratio)
+        model_save_dir = os.path.join(args.save_dir, args.name)
 
         if not os.path.exists(model_save_dir):
             os.makedirs(model_save_dir)
@@ -135,11 +160,16 @@ def main():
         val_acc = 0.5 + abs(val_acc - 0.5)
         print('round {} acc on test set: {}, val acc: {}'.format(i, acc*100, val_acc*100))
         acc_list.append(acc)
+    
+    logging.basicConfig(filename=os.path.join(model_save_dir, "leakage.log"), filemode='w', format='%(levelname)s:%(message)s', level=logging.INFO)
 
     print acc_list
+    # acc_str=" "
+    logging.info(acc_list)
     acc_ = np.array(acc_list)
     mean_acc = np.mean(acc_)
     std_acc = np.std(acc_)
+    logging.info("Mean: %.3f and Std: %.3f" % (mean_acc, std_acc))
     print mean_acc, std_acc
 
 def train_genderclassifier(model, num_epochs, optimizer, train_loader, test_loader, model_save_dir, \

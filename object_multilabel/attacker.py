@@ -21,6 +21,7 @@ from sklearn.metrics import roc_auc_score
 from sklearn.metrics import f1_score
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm as tqdm
+import logging
 
 import copy
 
@@ -149,6 +150,8 @@ def main():
     parser.add_argument('--crop_size', type=int, default=224)
     parser.add_argument('--image_size', type=int, default=256)
     parser.add_argument('--seed', type=int, default=1)
+    parser.add_argument("--use_fair", action="store_true")
+
 
 
     args = parser.parse_args()
@@ -186,11 +189,17 @@ def main():
     # Data samplers.
     val_data = CocoObjectGender(args, annotation_dir = args.annotation_dir, \
             image_dir = args.image_dir,split = 'val', transform = test_transform)
+
+    print("Length of val dataset: %d" % len(val_data))
+
     val_loader = torch.utils.data.DataLoader(val_data, batch_size = args.batch_size, \
             shuffle = False, num_workers = 4,pin_memory = True)
 
     test_data = CocoObjectGender(args, annotation_dir = args.annotation_dir, \
             image_dir = args.image_dir,split = 'test', transform = test_transform)
+
+    print("Length of test dataset: %d" % len(test_data))
+
     test_loader = torch.utils.data.DataLoader(test_data, batch_size = args.batch_size, \
             shuffle = False, num_workers = 4,pin_memory = True)
 
@@ -204,24 +213,30 @@ def main():
     #acc_list['image_feature'] = []
     acc_list['potential'] = []
 
-    args.gender_balanced = True
+#     args.gender_balanced = True
 
     for i in range(args.num_rounds):
 
         train_data = CocoObjectGender(args, annotation_dir = args.annotation_dir, \
             image_dir = args.image_dir,split = 'train', transform = train_transform)
+        print("Length of train dataset: %d" % len(train_data))
+
         train_loader = torch.utils.data.DataLoader(train_data, batch_size = args.batch_size,
                     shuffle = True, num_workers = 6, pin_memory = True)
 
         # Data samplers for val set.
         val_data = CocoObjectGender(args, annotation_dir = args.annotation_dir, \
                 image_dir = args.image_dir,split = 'val', transform = test_transform)
+        print("Length of val dataset: %d" % len(val_data))
+
         val_loader = torch.utils.data.DataLoader(val_data, batch_size = args.batch_size, \
                 shuffle = False, num_workers = 4,pin_memory = True)
 
         # Data samplers for test set.
         test_data = CocoObjectGender(args, annotation_dir = args.annotation_dir, \
                 image_dir = args.image_dir,split = 'test', transform = test_transform)
+        print("Length of test dataset: %d" % len(test_data))
+
         test_loader = torch.utils.data.DataLoader(test_data, batch_size = args.batch_size, \
                 shuffle = False, num_workers = 4,pin_memory = True)
 
@@ -250,9 +265,12 @@ def main():
         if args.noise:
             args.exp_id += '_noise' + str(args.noise_scale)
         model_save_dir = os.path.join(model_save_dir, str(args.exp_id))
-
+        
         if not os.path.exists(model_save_dir): os.makedirs(model_save_dir)
+        logging.basicConfig(filename=os.path.join(model_save_dir, "leakage.log"), filemode='a', format='%(levelname)s:%(message)s', level=logging.INFO)
 
+
+        # logging.info("Round: %d" % i)
         for feature_type in acc_list.keys():
 
             #import pdb
@@ -281,6 +299,8 @@ def main():
     for feature_type in acc_list.keys():
         print(acc_list[feature_type], np.std(np.array(acc_list[feature_type])))
         print('{} average leakage: {}'.format(feature_type, np.mean(np.array(acc_list[feature_type]))))
+        logging.info("Avg Leakage:")
+        logging.info(np.mean(np.array(acc_list[feature_type])))
 
 
 def train_attacker(num_epochs, optimizer, attacker, encoder, train_loader, test_loader, model_save_dir, \
